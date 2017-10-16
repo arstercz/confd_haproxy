@@ -58,7 +58,7 @@ export CONSUL_HTTP_TOKEN=e95597e0-4045-11e7-a9ef-b6ba84687927
 ```
 or the `watch` option if you want to continuous check consul entries:
 ```
-confd -onetime -backend consul -node localhost:8500 --watch
+confd -backend consul -node localhost:8500 -watch
 ```
 
 #### run `checkmysqlslave`
