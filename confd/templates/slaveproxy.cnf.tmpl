@@ -1,0 +1,37 @@
+global
+    log         127.0.0.1 local2
+
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    maxconn     4000
+    user        haproxy
+    group       haproxy
+    daemon
+
+    stats socket /var/lib/haproxy/stats
+
+defaults
+    mode                    tcp
+    log                     global
+    option                  tcplog
+    option                  dontlognull
+    option                  redispatch
+    retries                 3
+    timeout queue           1m
+    timeout connect         2s
+    timeout client          30m
+    timeout server          30m
+    timeout check           3s
+    maxconn                 4000
+
+{{range gets "/haproxy/mysqlslave/*"}}
+{{$data := json .Value}}
+listen {{$data.name}} 0.0.0.0:{{$data.proxyport}}
+    mode tcp
+    balance roundrobin
+    option tcplog
+    option tcp-smart-connect
+    option tcp-check
+    server {{$data.name}}-mysql {{$data.host}}:{{$data.port}} check fall 3 rise 2 maxconn 1000
+    option tcpka
+{{end}}
