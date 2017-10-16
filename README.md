@@ -6,6 +6,15 @@ proxy tcp port in a dynamic way with confd and haproxy, it can be used to proxy 
 
 confd_haproxy support tcp/ip layer's proxy, which based on `haproxy`, currently we just support mysql slave port proxy. 
 
+## Dependency
+
+```
+perl-libwww-perl
+perl-JSON
+perl-Config-IniFiles
+perl-DBD-MySQL
+```
+
 ## How does confd_haproxy work
 
 We use [consul](https://github.com/hashicorp/consul) as the [confd](https://github.com/kelseyhightower/confd) backend. Currently, you can use `bin/checkmysqlslave` to check alive mysql slave, such as the following workflow: 
@@ -65,7 +74,7 @@ confd -backend consul -node localhost:8500 -watch
 
 you can run `checkmysqlslave` to check and update the alive mysql slave info:
 ```
-# perl checkmysqlslave --conf db.conf --tag slave3301 --consul localhost:8500 --token e95597e0-4045-11e7-a9ef-b6ba84687927
+# perl bin/checkmysqlslave --conf etc/db.conf --tag slave3301 --consul localhost:8500 --token e95597e0-4045-11e7-a9ef-b6ba84687927
 [2017-10-16T16:03:33] connect to 10.0.21.5, 3301, monitor, xxxxxxxx ...
 [2017-10-16T16:03:34] slave3301 in consul is ok
 [2017-10-16T16:03:35] connect to 10.0.21.5, 3301, monitor, xxxxxxxx ...
