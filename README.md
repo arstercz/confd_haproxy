@@ -4,7 +4,11 @@ proxy tcp port in a dynamic way with confd and haproxy, it can be used to proxy 
 
 ### current support
 
-confd_haproxy support tcp/ip layer's proxy, which based on `haproxy`, currently we just support mysql slave port proxy. 
+confd_haproxy support tcp/ip layer's proxy, which based on `haproxy`, currently we just support:
+```
+mysql slave
+memcached. 
+```
 
 ## Dependency
 
@@ -51,12 +55,12 @@ We use [consul](https://github.com/hashicorp/consul) as the [confd](https://gith
 
 #### start confd
 
-2. first of all you must export consul token if your `consul` have set [consul_acl](https://www.consul.io/api/acl.html):
+1. first of all you must export consul token if your `consul` have set [consul_acl](https://www.consul.io/api/acl.html):
 ```
 export CONSUL_HTTP_TOKEN=e95597e0-4045-11e7-a9ef-b6ba84687927
 ```
 
-3. start confd:
+2. start confd:
 ```
 # confd -onetime -backend consul -node localhost:8500
 2017-10-16T16:06:06+08:00 cz-test1 confd[16454]: INFO Backend set to consul
