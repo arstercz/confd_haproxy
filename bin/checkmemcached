@@ -1,0 +1,246 @@
+#!/usr/bin/perl -w
+# read more from consul check api:
+# https://www.consul.io/docs/agent/checks.html
+# ensure only one alive memcached in consul.
+use strict;
+use Cache::Memcached;
+use Getopt::Long;
+use Data::Dumper;
+use MIME::Base64;
+use POSIX qw(strftime);
+use LWP::UserAgent;
+use HTTP::Request::Common;
+use JSON;
+
+my @server; # 10.0.21.5:11211,10.0.21.7:11211
+my $consul;
+my $token;
+my $tag;
+my $verbose = 0;
+my $help = 0;
+
+GetOptions(
+  "server=s"    => \@server,
+  "tag=s"       => \$tag,
+  "consul=s"    => \$consul,   # consul address
+  "token=s"     => \$token,    # consul token
+  "verbose!"    => \$verbose,
+  "help!"       => \$help,
+);
+
+if ($help) {
+  system("perldoc $0");
+  exit(0);
+}
+
+sub check_memcached {
+  my $host = shift;
+  my $port = shift;
+  my $memd = new Cache::Memcached {
+    'servers' => [ "$host:$port", ],
+    'debug' => 0,
+    'connect_timeout' => 0.5,
+  };
+
+  $memd->set_compress_threshold(10_000);
+  $memd->enable_compress(0);
+  unless ($memd->set("consul_conn_key", "set by script ok")) {
+    $memd->disconnect_all;
+    return;
+  }
+
+  my $val = $memd->get("consul_conn_key") || '';
+  my $n = 2;
+  while ( ($val ne "set by script ok") 
+         && $n-- ) {
+    $val = $memd->get("consul_conn_key") || '';
+    select(undef, undef, undef, 0.25);
+  }
+  if ($val eq "set by script ok") {
+    $memd->disconnect_all;
+    return 1;
+  }
+}
+
+# remove the duplicate value in array list.
+sub remove_dup_array {
+  my %count;
+  return grep { ++$count{join(',', $_)} < 2 } @_; 
+}
+
+# get current key value
+sub get_curr_key {
+  my ( $ua, $tag )   = @_;
+  my $keyurl = "http://$consul/v1/kv/haproxy/memcached/$tag"
+             . do { defined($token)
+                    ? "?token=$token"
+                    : ""
+                  }
+             ;
+
+  # get key value
+  my $res = $ua->get("$keyurl");
+  unless ($res->is_success) {
+     return;
+  }
+
+  my $decode = $res->decoded_content;
+  $decode    =~ s/(?:^\[|\]$)//g;
+  my $text = decode_json($decode);
+
+  my $value = defined($text->{'Value'})
+            ? decode_base64($text->{'Value'})
+            : undef ;
+  return $value;
+}
+
+# set alive key value
+sub set_alive_key {
+  my ( $ua, $tag, $value) = @_;
+  my $keyurl = "http://$consul/v1/kv/haproxy/memcached/$tag"
+             . do { defined($token)
+                    ? "?token=$token"
+                    : ""
+                  }
+             ;
+  # post key value
+  my $request  = 
+    HTTP::Request::Common::PUT(
+       $keyurl,
+       'User-Agent' => 'arstercz_v0.1',
+       'Content' => "$value"
+    );
+  my $res = $ua->request($request);
+  #print Dumper($res);
+  unless ($res->is_success) {
+    return 0;
+  }
+  my $decode = $res->decoded_content;
+  if ($decode eq 'true') {
+    return "ok";
+  }
+  return;
+}
+
+# check all alived memcached
+sub set_new_alive {
+  my($ua, $tag, $server_list) = @_;
+  my @alive;
+  foreach my $conn ( remove_dup_array(@$server_list) ) {
+    my ( $host, $port ) = split(/:/, $conn);
+    print "check memcached $host:$port\n" if $verbose;
+    if ( check_memcached($host, $port) ) {
+      push @alive, [ $host, $port ];
+    }
+  }
+
+  if ( @alive + 0 > 0 ) {
+    my ($host, $port) = @{$alive[0]};
+    my $proxyport = $port + 5000;
+    if (set_alive_key($ua, $tag,
+        "{\"name\":\"$tag\", \"host\":\"$host\", \"port\":$port, \"proxyport\":$proxyport}")
+    ) {
+      echo_msg("set new alive $host:$port with tag $tag ok");
+    }
+    else {
+      echo_msg("set new alive $host:$port with tag $tag error");
+    }
+  }
+  else {
+    echo_msg("there is no alive server!");
+  }
+}
+
+sub get_time {
+    return strftime("%Y-%m-%dT%H:%M:%S", localtime(time));
+}
+
+sub echo_msg {
+    my $msg = shift;
+    my $now = get_time();
+    print "[$now] $msg\n";
+}
+
+
+unless ( (@server && $consul) ) {
+    echo_msg("both --server and --consul option must have value");
+    exit 254;
+}
+
+# http client
+my $ua = LWP::UserAgent->new;
+$ua->timeout(3);
+
+# loop detection
+$| = 1;
+my $error = 0;
+while(1) {
+  # server option parse
+  @server = split(/,/, join(',', @server));
+
+  # push curr value to server
+  #consul key: /haproxy/memcached/mem11211, mem11211 is the tag.
+  my $msg = get_curr_key($ua, $tag);
+  my $current_host;
+  my $current_port;
+  if(defined($msg) && length($msg)) {
+    my $info = decode_json($msg); 
+    $current_host = $info->{host};
+    $current_port = $info->{port};
+    if( check_memcached($current_host, $current_port) ) {
+      echo_msg("current $current_host:$current_port is ok");
+      $error = 0;
+    }
+    else {
+      echo_msg("current $current_host:$current_port check error");
+      # if many errors, sleep in increase time
+      $error++ && sleep(int($error/2)+1);
+      set_new_alive($ua, $tag, \@server);
+    }
+  }
+  else {
+    #there is not exists with tag
+    set_new_alive($ua, $tag, \@server)
+  }
+  sleep 1;
+}
+
+# ###################################################################
+# Documentation.
+# ###################################################################
+
+=head1 OPTIONS
+
+=over 4
+
+=item server
+
+memcached servers list, multi value delimiter by ',', such as 
+--server 10.0.21.1:11211,10.0.21.2:11211
+
+=item tag
+
+mark the memcached groups that alias to server option, such as mem11211.
+
+=item consul
+
+consul http address, default is "localhost:8500"
+
+=item token
+
+consul acl_token, default is undef.
+
+=item help
+
+print help info.
+
+=back
+
+=head1 AUTHOR
+
+zhe.chen <chenzhe07@gmail.com>
+
+=head1 CHANGELOG
+
+v0.1.0 version
+
