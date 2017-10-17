@@ -1,0 +1,9 @@
+[template]
+src = "memcached.conf.tmpl"
+dest = "/etc/haproxy/haproxy.cfg"
+keys = [
+  "/haproxy/memcached",
+]
+
+check_cmd = "haproxy -f /etc/haproxy/haproxy.cfg -c"
+reload_cmd = "/etc/init.d/haproxy reload"

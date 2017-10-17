@@ -13,6 +13,7 @@ perl-libwww-perl
 perl-JSON
 perl-Config-IniFiles
 perl-DBD-MySQL
+perl-Cache-Memcached
 ```
 
 ## How does confd_haproxy work
@@ -83,12 +84,24 @@ you can run `checkmysqlslave` to check and update the alive mysql slave info:
 ....
 ```
 
+#### run `checkmemcached`
+
+run `checkmemcached` to check and update the alive memcached info:
+```
+perl checkmemcached --server 10.0.21.5:11211,10.0.21.7:11211 --tag mem11211 --consul localhost:8500 --token e95597e0-4045-11e7-a9ef-b6ba84687927
+[2017-10-17T17:03:21] set new alive 10.0.21.7:11211 with tag mem11211 ok
+[2017-10-17T17:03:22] current 10.0.21.7:11211 is ok
+....
+....
+```
+
+
 ## toolkit
 
 the `bin` dir include some useful script to check the backend servers which behind at the haproxy:
 ```
 checkmysqlslave - check mysql whether is slave or not, set new slave info to consul when current slave is abnormal.
-...
+checkmemcached - check memcached and ensure only one alive memcached in consul when current memcached is abnormal.
 ...
 ```
 
@@ -103,9 +116,16 @@ the value in json format, and proxyport is `port + 10050` by default, all key na
 curl -X PUT -d '{"name":"slave3301", "host":"10.0.21.5", "port":3301, "proxyport":13351}' http://localhost:8500/v1/kv/haproxy/mysqlslave/slave3301
 ```
 
+#### `checkmemcached`
+
+the value in json format, and proxyport is `port + 5000` by default, all key name with a prefix name 'haproxy/memcached':
+```
+curl -X PUT -d '{"name":"mem11211", "host":"10.0.21.7", "port":11211, "proxyport":16211}' http://localhost:8500/v1/kv/haproxy/memcached/mem11211
+```
+
 ## TODO list:
 
   * mysql slave proxy (bin/checkmysqlslave)
   * redis master proxy (TODO)
-  * memcached proxy (TODO)
+  * memcached proxy (bin/checkmemcached)
 
